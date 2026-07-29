@@ -1,0 +1,410 @@
+class ZCLUTIL_DYNAMIC_SELECT definition
+  public
+  create public .
+
+public section.
+
+  methods CONSTRUCTOR .
+protected section.
+
+  methods SELECT_DATA
+    importing
+      !IV_TABNAME_SEQ type TABNAME16
+      !IV_TABNAME_DATA type TABNAME16
+      !IV_WHERE_DATA_VALUES type DATA
+    changing
+      value(CT_TABLE_VALUES) type DATA .
+private section.
+
+  types:
+    BEGIN OF ty_valid_fields,
+          field TYPE char15,
+         END OF ty_valid_fields .
+  types:
+    ty_t_valid_fields TYPE TABLE OF ty_valid_fields .
+
+  methods BUILD_WHERE_DATA_W_V_FIELDS
+    importing
+      !IT_VALID_VALUES type TY_T_VALID_FIELDS
+      !IV_WHERE_DATA_VALUES type DATA
+    changing
+      !CV_WHERE type STRING .
+  methods GET_ACCESS_SEQUENCE
+    importing
+      !IV_TABNAME type DATA
+    changing
+      !CT_DATA type DATA
+    exceptions
+      NO_DATA .
+  methods GET_DATA_FROM_SEQUENCE
+    importing
+      !IV_DATA_FIELDS type DATA
+      !IV_TABNAME_DATA type DATA
+      !IV_WHERE_DATA_VALUES type DATA
+    changing
+      !CT_TABLE_VALUES type DATA
+    exceptions
+      NO_DATA .
+  methods GET_ONLY_VALID_FIELDS
+    importing
+      !IV_DATA_FIELDS type DATA
+      !IV_TABNAME_DATA type DATA
+    changing
+      value(CT_TABLE_VALUES) type TY_T_VALID_FIELDS .
+  methods GET_SQL_LITERAL_FOR_COMPONENT
+    importing
+      !IV_TYPE type ref to CL_ABAP_DATADESCR
+      !IV_VALUE type DATA
+    changing
+      value(CV_LITERAL) type DATA .
+ENDCLASS.
+
+
+
+CLASS ZCLUTIL_DYNAMIC_SELECT IMPLEMENTATION.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Private Method ZCLUTIL_DYNAMIC_SELECT->BUILD_WHERE_DATA_W_V_FIELDS
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IT_VALID_VALUES                TYPE        TY_T_VALID_FIELDS
+* | [--->] IV_WHERE_DATA_VALUES           TYPE        DATA
+* | [<-->] CV_WHERE                       TYPE        STRING
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD build_where_data_w_v_fields.
+
+
+  DATA: lo_descr        TYPE REF TO cl_abap_structdescr,
+        lt_comp_dvalue  TYPE abap_component_tab,
+        ls_valid_values LIKE LINE OF it_valid_values,
+        ls_comp_dvalue  LIKE LINE OF lt_comp_dvalue,
+        lv_count_table  TYPE i,
+        lv_tabix        TYPE sy-tabix,
+        lv_operator     TYPE char3,
+        lv_not_pass_val TYPE abap_bool,
+        lv_literal      TYPE string.
+
+  FIELD-SYMBOLS: <fl_value> TYPE any.
+
+
+
+  lo_descr ?= cl_abap_structdescr=>describe_by_data( p_data = iv_where_data_values ).
+  IF sy-subrc IS INITIAL.
+
+    lt_comp_dvalue = lo_descr->get_components( ).
+    DESCRIBE TABLE lt_comp_dvalue LINES lv_count_table.
+
+    LOOP AT lt_comp_dvalue INTO ls_comp_dvalue.
+
+      lv_tabix = sy-tabix.
+
+      READ TABLE it_valid_values INTO ls_valid_values WITH KEY field = ls_comp_dvalue-name.
+      IF sy-subrc IS NOT INITIAL.
+        lv_not_pass_val = abap_true.
+      ENDIF.
+
+      ASSIGN COMPONENT ls_comp_dvalue-name OF STRUCTURE iv_where_data_values TO <fl_value>.
+      IF <fl_value> IS ASSIGNED.
+
+        me->get_sql_literal_for_component(
+                                           EXPORTING
+                                             iv_type   = ls_comp_dvalue-type
+                                             iv_value  = <fl_value>
+                                           CHANGING
+                                             cv_literal = lv_literal ).
+
+        lv_operator = 'AND'.
+        IF lv_tabix EQ lv_count_table.
+          CLEAR lv_operator.
+        ENDIF.
+
+        IF cv_where IS INITIAL.
+
+          IF lv_not_pass_val IS NOT INITIAL.
+
+            cv_where = |{ ls_comp_dvalue-name } = ' ' |.
+
+          ELSE.
+
+            cv_where = |{ ls_comp_dvalue-name } = { lv_literal } |.
+
+          ENDIF.
+
+        ELSE.
+
+          IF lv_not_pass_val IS NOT INITIAL.
+
+            cv_where = |{ cv_where }{ ls_comp_dvalue-name } = ' ' |.
+
+          ELSE.
+
+            cv_where = |{ cv_where }{ ls_comp_dvalue-name } = { lv_literal } |.
+
+          ENDIF.
+
+        ENDIF.
+
+        IF lv_operator IS NOT INITIAL.
+
+          cv_where = |{ cv_where }{ lv_operator } |.
+
+        ENDIF.
+
+      ENDIF.
+
+      CLEAR: lv_not_pass_val, ls_valid_values, lv_literal.
+
+    ENDLOOP.
+
+  ENDIF.
+
+
+ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Public Method ZCLUTIL_DYNAMIC_SELECT->CONSTRUCTOR
+* +-------------------------------------------------------------------------------------------------+
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+method CONSTRUCTOR.
+endmethod.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Private Method ZCLUTIL_DYNAMIC_SELECT->GET_ACCESS_SEQUENCE
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IV_TABNAME                     TYPE        DATA
+* | [<-->] CT_DATA                        TYPE        DATA
+* | [EXC!] NO_DATA
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD get_access_sequence.
+
+  FIELD-SYMBOLS: <fs_tdata> TYPE ANY TABLE.
+
+  ASSIGN ct_data->* TO <fs_tdata>.
+
+  IF <fs_tdata> IS ASSIGNED.
+
+    SELECT *
+      INTO TABLE <fs_tdata>
+     FROM (iv_tabname).
+
+    IF sy-subrc IS NOT INITIAL.
+      RAISE no_data.
+    ENDIF.
+
+  ENDIF.
+
+
+
+ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Private Method ZCLUTIL_DYNAMIC_SELECT->GET_DATA_FROM_SEQUENCE
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IV_DATA_FIELDS                 TYPE        DATA
+* | [--->] IV_TABNAME_DATA                TYPE        DATA
+* | [--->] IV_WHERE_DATA_VALUES           TYPE        DATA
+* | [<-->] CT_TABLE_VALUES                TYPE        DATA
+* | [EXC!] NO_DATA
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD get_data_from_sequence.
+
+  DATA: lt_valid_fields TYPE ty_t_valid_fields,
+        lv_where TYPE string.
+
+  FIELD-SYMBOLS: <fs_data> TYPE ANY TABLE,
+                 <fs_tdata_f> TYPE ANY TABLE,
+                 <fs_sdata_f> TYPE any.
+
+
+  ASSIGN iv_data_fields->* TO <fs_tdata_f>.
+  IF <fs_tdata_f> IS NOT ASSIGNED.
+    RETURN.
+  ENDIF.
+
+  ASSIGN ct_table_values TO <fs_data>.
+  IF <fs_data> IS NOT ASSIGNED.
+    RETURN.
+  ENDIF.
+
+  LOOP AT <fs_tdata_f> ASSIGNING <fs_sdata_f>.
+
+    me->get_only_valid_fields( EXPORTING
+                                  iv_data_fields  = <fs_sdata_f>
+                                  iv_tabname_data = iv_tabname_data
+                               CHANGING
+                                  ct_table_values = lt_valid_fields ).
+
+    me->build_where_data_w_v_fields( EXPORTING
+                                        it_valid_values      = lt_valid_fields
+                                        iv_where_data_values = iv_where_data_values
+                                     CHANGING
+                                        cv_where = lv_where
+                                     ).
+    CLEAR <fs_data>.
+    REFRESH <fs_data>.
+
+    SELECT *
+        INTO TABLE <fs_data>
+       FROM (iv_tabname_data)
+      WHERE (lv_where)
+     ORDER BY PRIMARY KEY.
+
+    IF sy-subrc IS INITIAL.
+      EXIT.
+    ENDIF.
+
+    CLEAR: lt_valid_fields, lv_where.
+    REFRESH lt_valid_fields.
+
+  ENDLOOP.
+
+ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Private Method ZCLUTIL_DYNAMIC_SELECT->GET_ONLY_VALID_FIELDS
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IV_DATA_FIELDS                 TYPE        DATA
+* | [--->] IV_TABNAME_DATA                TYPE        DATA
+* | [<-->] CT_TABLE_VALUES                TYPE        TY_T_VALID_FIELDS
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD get_only_valid_fields.
+
+  DATA: lo_descr TYPE REF TO cl_abap_structdescr,
+        lo_data TYPE REF TO data,
+        lt_comp_dfields TYPE abap_component_tab,
+        lt_comp_data TYPE abap_component_tab,
+        ls_comp_dfields LIKE LINE OF lt_comp_dfields,
+        ls_comp_data LIKE LINE OF lt_comp_data.
+
+  FIELD-SYMBOLS <fs_data_fields> TYPE any.
+  FIELD-SYMBOLS <fs_value_field> TYPE any.
+
+  ASSIGN iv_data_fields TO <fs_data_fields>.
+
+  lo_descr ?= cl_abap_structdescr=>describe_by_name( p_name = iv_tabname_data ).
+
+  IF sy-subrc IS INITIAL.
+
+    lt_comp_data = lo_descr->get_components( ).
+
+  ENDIF.
+
+  CLEAR lo_descr.
+
+  lo_descr ?= cl_abap_structdescr=>describe_by_data( p_data = <fs_data_fields> ).
+
+  IF sy-subrc IS INITIAL.
+
+    lt_comp_dfields = lo_descr->get_components( ).
+    CLEAR lo_descr.
+
+    LOOP AT lt_comp_dfields INTO ls_comp_dfields.
+
+      ASSIGN COMPONENT ls_comp_dfields-name OF STRUCTURE <fs_data_fields> TO <fs_value_field>.
+      IF <fs_value_field> IS ASSIGNED.
+
+        READ TABLE lt_comp_data INTO ls_comp_data WITH KEY name = <fs_value_field>.
+        IF sy-subrc IS INITIAL.
+
+          APPEND <fs_value_field> TO ct_table_values.
+
+        ENDIF.
+
+      ENDIF.
+
+    ENDLOOP.
+
+  ENDIF.
+
+ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Private Method ZCLUTIL_DYNAMIC_SELECT->GET_SQL_LITERAL_FOR_COMPONENT
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IV_TYPE                        TYPE REF TO CL_ABAP_DATADESCR
+* | [--->] IV_VALUE                       TYPE        DATA
+* | [<-->] CV_LITERAL                     TYPE        DATA
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD get_sql_literal_for_component.
+
+  DATA lv_text TYPE string.
+
+  CASE iv_type->type_kind.
+    WHEN cl_abap_typedescr=>typekind_char
+       OR cl_abap_typedescr=>typekind_string
+       OR cl_abap_typedescr=>typekind_clike.
+      lv_text = iv_value.
+      " Escapa aspas simples
+      TRY.
+          lv_text = cl_abap_dyn_prg=>escape_quotes( lv_text ).
+        CATCH cx_root.
+          REPLACE ALL OCCURRENCES OF '''' IN lv_text WITH ''''''.
+      ENDTRY.
+      cv_literal = |'{ lv_text }'|.
+
+    WHEN iv_type->typekind_date.
+      " DATS: assume YYYYMMDD no conteúdo
+      lv_text = iv_value.
+      CONDENSE lv_text NO-GAPS.
+      cv_literal = |'{ lv_text }'|.
+
+    WHEN iv_type->typekind_time.
+      " TIMS: HHMMSS
+      lv_text = iv_value.
+      CONDENSE lv_text NO-GAPS.
+      cv_literal = |'{ lv_text }'|.
+
+    WHEN OTHERS.
+      " Numéricos/decimais: sem aspas; remove espaços
+      lv_text = iv_value.
+      CONDENSE lv_text NO-GAPS.
+      cv_literal = lv_text.
+  ENDCASE.
+
+ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Protected Method ZCLUTIL_DYNAMIC_SELECT->SELECT_DATA
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IV_TABNAME_SEQ                 TYPE        TABNAME16
+* | [--->] IV_TABNAME_DATA                TYPE        TABNAME16
+* | [--->] IV_WHERE_DATA_VALUES           TYPE        DATA
+* | [<-->] CT_TABLE_VALUES                TYPE        DATA
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD select_data.
+
+  DATA: lt_data TYPE REF TO data.
+
+  CREATE DATA lt_data TYPE TABLE OF (iv_tabname_seq).
+
+  me->get_access_sequence(
+    EXPORTING
+      iv_tabname = iv_tabname_seq
+    CHANGING
+      ct_data    = lt_data
+    EXCEPTIONS
+      no_data    = 4
+  ).
+
+  CHECK sy-subrc IS INITIAL.
+
+  me->get_data_from_sequence( EXPORTING
+                                iv_data_fields       = lt_data
+                                iv_tabname_data      = iv_tabname_data
+                                iv_where_data_values = iv_where_data_values
+                              CHANGING
+                                ct_table_values = ct_table_values
+                              EXCEPTIONS
+                                no_data = 4
+                              ).
+
+
+
+ENDMETHOD.
+ENDCLASS.
