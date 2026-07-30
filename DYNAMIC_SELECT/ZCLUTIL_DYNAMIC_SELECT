@@ -73,6 +73,9 @@ CLASS ZCLUTIL_DYNAMIC_SELECT IMPLEMENTATION.
 * +--------------------------------------------------------------------------------------</SIGNATURE>
 METHOD build_where_data_w_v_fields.
 
+  " Build a dynamic WHERE clause from valid fields and the provided input values.
+  " Only fields present in the input structure are used; missing or invalid fields
+  " are represented as blank values so the query still resolves the structure.
 
   DATA: lo_descr        TYPE REF TO cl_abap_structdescr,
         lt_comp_dvalue  TYPE abap_component_tab,
@@ -100,6 +103,7 @@ METHOD build_where_data_w_v_fields.
 
       READ TABLE it_valid_values INTO ls_valid_values WITH KEY field = ls_comp_dvalue-name.
       IF sy-subrc IS NOT INITIAL.
+        " Field is not valid for filtering, so mark it as not passing validation.
         lv_not_pass_val = abap_true.
       ENDIF.
 
@@ -179,6 +183,7 @@ endmethod.
 * +--------------------------------------------------------------------------------------</SIGNATURE>
 METHOD get_access_sequence.
 
+  " Dynamically select all rows from the access sequence table.
   FIELD-SYMBOLS: <fs_tdata> TYPE ANY TABLE.
 
   ASSIGN ct_data->* TO <fs_tdata>.
@@ -211,6 +216,8 @@ ENDMETHOD.
 * +--------------------------------------------------------------------------------------</SIGNATURE>
 METHOD get_data_from_sequence.
 
+  " Iterate through the access sequence rows, build the WHERE clause for each row,
+  " and fetch matching rows from the target data table.
   DATA: lt_valid_fields TYPE ty_t_valid_fields,
         lv_where TYPE string.
 
@@ -273,6 +280,8 @@ ENDMETHOD.
 * +--------------------------------------------------------------------------------------</SIGNATURE>
 METHOD get_only_valid_fields.
 
+  " Determine which fields from the current access sequence row are valid for the data table.
+  " Only append those field names that exist in the target table structure.
   DATA: lo_descr TYPE REF TO cl_abap_structdescr,
         lo_data TYPE REF TO data,
         lt_comp_dfields TYPE abap_component_tab,
@@ -332,6 +341,9 @@ ENDMETHOD.
 * +--------------------------------------------------------------------------------------</SIGNATURE>
 METHOD get_sql_literal_for_component.
 
+  " Convert the field value into a SQL literal based on the ABAP data type.
+  " Strings are escaped and quoted, date/time values are normalized,
+  " and numeric values are returned without quotes.
   DATA lv_text TYPE string.
 
   CASE iv_type->type_kind.
@@ -339,7 +351,7 @@ METHOD get_sql_literal_for_component.
        OR cl_abap_typedescr=>typekind_string
        OR cl_abap_typedescr=>typekind_clike.
       lv_text = iv_value.
-      " Escapa aspas simples
+      " Escape single quotes in string literals.
       TRY.
           lv_text = cl_abap_dyn_prg=>escape_quotes( lv_text ).
         CATCH cx_root.
@@ -348,19 +360,19 @@ METHOD get_sql_literal_for_component.
       cv_literal = |'{ lv_text }'|.
 
     WHEN iv_type->typekind_date.
-      " DATS: assume YYYYMMDD no conteúdo
+      " DATS: assume YYYYMMDD in the content.
       lv_text = iv_value.
       CONDENSE lv_text NO-GAPS.
       cv_literal = |'{ lv_text }'|.
 
     WHEN iv_type->typekind_time.
-      " TIMS: HHMMSS
+      " TIMS: expect HHMMSS format.
       lv_text = iv_value.
       CONDENSE lv_text NO-GAPS.
       cv_literal = |'{ lv_text }'|.
 
     WHEN OTHERS.
-      " Numéricos/decimais: sem aspas; remove espaços
+      " Numeric/decimal values: no quotes; remove whitespace.
       lv_text = iv_value.
       CONDENSE lv_text NO-GAPS.
       cv_literal = lv_text.
@@ -379,6 +391,7 @@ ENDMETHOD.
 * +--------------------------------------------------------------------------------------</SIGNATURE>
 METHOD select_data.
 
+  " Prepare a dynamic internal table for the access sequence and then fetch data.
   DATA: lt_data TYPE REF TO data.
 
   CREATE DATA lt_data TYPE TABLE OF (iv_tabname_seq).
