@@ -172,7 +172,15 @@ A utilização da classe proporciona:
 * **Manutenibilidade:** alterações na sequência de acesso podem ser realizadas através da configuração da tabela, reduzindo a necessidade de alteração do programa consumidor.
 * **Validação dinâmica:** somente campos existentes na estrutura da tabela de destino são utilizados na construção da seleção.
 
-## 4. Visão Geral do Fluxo
+## 4. Limitações e Pontos de Evolução
+
+A implementação atual foi desenvolvida com foco na reutilização da lógica de determinação por sequência de acesso e na redução de código duplicado nos programas consumidores.
+
+Algumas validações adicionais podem ser incorporadas em futuras evoluções, principalmente relacionadas à validação dos parâmetros de entrada, tratamento de exceções específicas e cenários de utilização em ambientes de grande volume de dados.
+
+> **Nota:** Os pontos mencionados acima representam oportunidades de evolução da solução e devem ser avaliados de acordo com o cenário de utilização e os requisitos do projeto.
+
+## 5. Visão Geral do Fluxo
 
 ```text
 Programa Consumidor
@@ -208,7 +216,7 @@ Programa Consumidor
                         └──► Repete
 ```
 
-## 5. Métodos Principais
+## 6. Métodos Principais
 
 | Método                          | Responsabilidade                                                  |
 | ------------------------------- | ----------------------------------------------------------------- |
